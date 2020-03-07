@@ -60,5 +60,5 @@ coverage.xml
 docs/_build/
 
 #reports and logs
-.log/*
-.reports/*
+/log/*
+/reports/*
