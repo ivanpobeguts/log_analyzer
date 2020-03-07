@@ -1,0 +1,5 @@
+{
+	"REPORT_SIZE": 50,
+    "REPORT_DIR": "./new_reports",
+    "SCRIPT_LOGS_DIR": "./log_dir"
+}

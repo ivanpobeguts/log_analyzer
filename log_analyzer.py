@@ -25,10 +25,11 @@ ERROR_THRESHOLD = 0.5
 
 logger = logging.getLogger(__name__)
 
+NginxLog = namedtuple('NginxLog', 'log_path date')
+
 
 def find_recent_log_file(config):
 	path = config["LOG_DIR"]
-	NginxLog = namedtuple('NginxLog', 'log_path date')
 	recent_log = NginxLog(None, datetime.min)
 	for file_name in os.listdir(path):
 		try:
@@ -85,8 +86,12 @@ def parse_file_info(path):
 		stat_dict[url]["time_max"] = round(stat_dict[url]["time_max"], 3)
 		stat_dict[url].pop("time_values", None)
 
-	if errors_num/requests_num >= ERROR_THRESHOLD:
-		logger.info(f"Attention! {ERROR_THRESHOLD * 100} % of log file was not parsed!")
+
+	try:
+		if errors_num/requests_num >= ERROR_THRESHOLD:
+			logger.info(f"Attention! {ERROR_THRESHOLD * 100} % of log file was not parsed!")
+	except ZeroDivisionError:
+		logger.info(f"No logs found in logfile {path}")
 	return stat_dict
 
 
@@ -125,9 +130,42 @@ def render_template(stat_dict, config):
 	return Template(template_str).safe_substitute(table_json)
 
 
+def get_args():
+	parser = argparse.ArgumentParser(description='Config file')
+	parser.add_argument('--config', type=str, default='./default_config.json', help='Custom script config')
+	return parser.parse_args().config
+
+
+def parse_input_args(config_file):
+	config = {
+	    "REPORT_SIZE": 1000,
+	    "REPORT_DIR": "./reports",
+	    "LOG_DIR": "./log"
+	}	
+
+	try:
+		with open(config_file, 'r') as json_file:
+			new_config = json.load(json_file)
+			config = {**config, **new_config}
+	except json.decoder.JSONDecodeError:
+		pass
+	except FileNotFoundError:
+		err_mes = "Cannot parse config file"
+		logger.error(err_mes)
+		raise FileNotFoundError(err_mes)
+	logging.basicConfig(
+		     filename=config.get('SCRIPT_LOGS_DIR'),
+		     level=logging.INFO, 
+		     format= '[%(asctime)s] %(levelname).1s %(message)s',
+		     datefmt='%Y.%m.%d %H:%M:%S'
+			)
+	return config
+
+
 def main():
 	try:
-		config = parse_input_args()
+		config_file = get_args()
+		config = parse_input_args(config_file)
 
 		logger.info("Searching for recent log file...")
 		recent_log = find_recent_log_file(config)
@@ -149,35 +187,6 @@ def main():
 		logger.info(f"Report was successfully built and is stored in {report_file_path}")
 	except:
 		logger.exception("Unexpected error")
-
-
-def parse_input_args():
-	config = {
-	    "REPORT_SIZE": 1000,
-	    "REPORT_DIR": "./reports",
-	    "LOG_DIR": "./log"
-	}
-	parser = argparse.ArgumentParser(description='Config file')
-	parser.add_argument('--config', type=str, default='./default_config.json', help='Custom script config')
-	args = parser.parse_args()
-
-	try:
-		with open(args.config, 'r') as json_file:
-			new_config = json.load(json_file)
-			config = {**config, **new_config}
-	except json.decoder.JSONDecodeError:
-		pass
-	except FileNotFoundError:
-		err_mes = "Cannot parse config file"
-		logger.error(err_mes)
-		raise FileNotFoundError(err_mes)
-	logging.basicConfig(
-		     filename=config.get('SCRIPT_LOGS_DIR'),
-		     level=logging.INFO, 
-		     format= '[%(asctime)s] %(levelname).1s %(message)s',
-		     datefmt='%Y.%m.%d %H:%M:%S'
-			)
-	return config
 
 
 
