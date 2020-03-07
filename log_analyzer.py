@@ -8,6 +8,9 @@ import statistics
 from string import Template
 from datetime import datetime
 from collections import namedtuple
+import logging
+
+from settings import *
 
 
 # log_format ui_short '$remote_addr  $remote_user $http_x_real_ip [$time_local] "$request" '
@@ -15,16 +18,10 @@ from collections import namedtuple
 #                     '"$http_user_agent" "$http_x_forwarded_for" "$http_X_REQUEST_ID" "$http_X_RB_USER" '
 #                     '$request_time';
 
-TEMPLATE_PATH = "./report.html"
 
-config = {
-    "REPORT_SIZE": 1000,
-    "REPORT_DIR": "./reports",
-    "LOG_DIR": "./log"
-}
+logger = logging.getLogger(__name__)
 
-
-def find_recent_log_file(path="./log"):
+def find_recent_log_file(path=CONFIG["LOG_DIR"]):
 	NginxLog = namedtuple('NginxLog', 'log_path date')
 	recent_log = NginxLog(None, datetime.min)
 	for file_name in os.listdir(path):
@@ -36,9 +33,9 @@ def find_recent_log_file(path="./log"):
 			if date > recent_log.date:
 				recent_log = NginxLog("/".join([path, log_name]), date)
 		except (AttributeError, ValueError) as e:
-			print(e)
+			pass
 		except Exception as e:
-			print(e)
+			logger.exception("Unexpected error")
 	return recent_log
 
 
@@ -72,6 +69,8 @@ def parse_file_info(path="./log/nginx-access-ui.log-20170630"):
 			sum_request_time += float(request_time)
 		except AttributeError as e:
 			errors_num += 1
+		except Exception as e:
+			logger.exception("Unexpected error")
 
 		requests_num += 1
 
@@ -83,6 +82,9 @@ def parse_file_info(path="./log/nginx-access-ui.log-20170630"):
 		stat_dict[url]["time_sum"] = round(stat_dict[url]["time_sum"], 3)
 		stat_dict[url]["time_max"] = round(stat_dict[url]["time_max"], 3)
 		stat_dict[url].pop("time_values", None)
+
+	if errors_num/requests_num >= ERROR_THRESHOLD:
+		logger.info(f"Attention! {ERROR_THRESHOLD * 100} % of log file was not parsed!")
 	return stat_dict, requests_num, errors_num
 
 
@@ -99,14 +101,14 @@ def get_template_str(path=TEMPLATE_PATH):
 		return file.read()
 
 
-def save_report(report_str, file_name, file_path=config["REPORT_DIR"]):
+def save_report(report_str, file_name, file_path=CONFIG["REPORT_DIR"]):
 	with open("/".join([file_path, file_name]), "w+") as file:
 		file.write(report_str)
 
 
 def prepare_dict_for_template(stat_dict):
 	table_json_list = []
-	stat_dict = dict(sorted(stat_dict.items(), key=lambda x: x[1]["time_sum"], reverse=True)[:config["REPORT_SIZE"]])
+	stat_dict = dict(sorted(stat_dict.items(), key=lambda x: x[1]["time_sum"], reverse=True)[:CONFIG["REPORT_SIZE"]])
 	for k, v in stat_dict.items():
 		v["url"] = k
 		table_json_list.append(v)
@@ -120,10 +122,24 @@ def render_template(stat_dict):
 
 
 def main():
+	logger.info("Searching for recent log file...")
 	recent_log = find_recent_log_file()
+
+	if not recent_log.log_path:
+		logger.info("No log file found")
+		return
+
+	logger.info(f"Log file {recent_log.log_path} found")
+
+	logger.info("Parsing file...")
 	result = parse_file_info(recent_log.log_path)
+
+	logger.info("Generate and save report")
 	report_str = render_template(result[0])
-	save_report(report_str, f"report-{datetime.strftime(recent_log.date, '%Y.%m.%d')}.html")
+	report_file_path = f"report-{datetime.strftime(recent_log.date, '%Y.%m.%d')}.html"
+	save_report(report_str, report_file_path)
+
+	logger.info(f"Report was successfully built and is stored in {report_file_path}")
 
 
 if __name__ == "__main__":
